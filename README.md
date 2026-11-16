@@ -58,6 +58,8 @@ A company that adds 40% to its engineering team in a month, or opens eight sales
 
 ## 2. Architecture
 
+![Workflow Overview](workflow-overview.png)
+
 ```mermaid
 flowchart LR
     T1[Daily Radar Schedule<br/>0 6 * * 1-5] --> CFG
