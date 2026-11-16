@@ -1,0 +1,2275 @@
+{
+  "name": "Clay Hiring Velocity Target Account Radar (dhRobin Systems)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## n8n-clay-hiring-velocity-target-account-radar\n**dhRobin Systems** · Target accounts → hiring intelligence (Apollo / Clay) → velocity score → HubSpot properties, SDR tasks, Slack digest.\n\n**Safe by default.** With no environment variables set:\n- `SANDBOX_MODE=true`: mock scope and mock hiring data. **Zero external calls.**\n- `DRY_RUN=true`: payloads are built but nothing is sent.\n- `SYNC_TO_HUBSPOT=false`, `NOTIFY_SLACK=false`: each write needs an explicit opt-in.\n\nSecrets appear only as `$env.*` in HTTP header, query or URL fields and never in node output.",
+        "height": 360,
+        "width": 560,
+        "color": 5
+      },
+      "id": "e6096ed7-f14e-5d41-84bd-3f2d3b262b3e",
+      "name": "Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -760,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Pinned synthetic payloads\nPinned: Daily Radar Schedule, HubSpot: Search Target Accounts, Google Sheets: Read Target Accounts, Apollo: Enrich Organization, Apollo: Job Postings, Clay: Hiring Lookup, both HubSpot batch writes and Slack.\n\nPins apply to **manual executions only**. Scheduled production runs ignore them. Unpin a node before a manual live test of that integration. Pinned item counts match the 4 pinned accounts.",
+        "height": 240,
+        "width": 460,
+        "color": 3
+      },
+      "id": "13886dc1-5bc0-5d26-9b4a-175973c94caf",
+      "name": "Pinned Data Notice",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1180,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "1a581127-4ec9-5b63-bb1d-ee312895225d",
+      "name": "Daily Radar Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -700,
+        160
+      ],
+      "notes": "Weekdays 06:00 (workflow timezone). For a weekly radar use 0 6 * * 1.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {},
+      "id": "a77a9311-30d4-524f-98a7-dec818b36ee1",
+      "name": "Manual Test Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "62461717-eb4f-5e9b-a1ad-4089175a972b",
+              "name": "config.sandboxMode",
+              "value": "={{ String($env.SANDBOX_MODE ?? 'true').trim().toLowerCase() !== 'false' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "5239af5d-93a8-563d-9b09-c18b21378f48",
+              "name": "config.dryRun",
+              "value": "={{ String($env.DRY_RUN ?? 'true').trim().toLowerCase() !== 'false' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "a7f821a4-91f1-529e-a182-accf389f3e19",
+              "name": "config.syncToHubspot",
+              "value": "={{ String($env.SYNC_TO_HUBSPOT ?? 'false').trim().toLowerCase() === 'true' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "167c7960-447e-580a-8317-03a8ce6f9c31",
+              "name": "config.createSdrTasks",
+              "value": "={{ String($env.SYNC_TO_HUBSPOT ?? 'false').trim().toLowerCase() === 'true' && String($env.CREATE_SDR_TASKS ?? 'true').trim().toLowerCase() !== 'false' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "d467a548-1206-56bc-a747-ce7eecc4dea4",
+              "name": "config.notifySlack",
+              "value": "={{ String($env.NOTIFY_SLACK ?? 'false').trim().toLowerCase() === 'true' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "d4090d72-e334-5b23-a6c2-333f7d53599e",
+              "name": "config.scopeFromHubspot",
+              "value": "={{ String($env.SCOPE_SOURCE ?? 'hubspot').trim().toLowerCase() !== 'google_sheets' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "397253cd-a80c-5283-9d0f-79817ff100a9",
+              "name": "config.scopeFilterProperty",
+              "value": "={{ String($env.SCOPE_FILTER_PROPERTY ?? 'hs_is_target_account').trim() || 'hs_is_target_account' }}",
+              "type": "string"
+            },
+            {
+              "id": "08be09c1-4645-5300-a55a-e96316710c54",
+              "name": "config.scopeFilterValue",
+              "value": "={{ String($env.SCOPE_FILTER_VALUE ?? 'true').trim() || 'true' }}",
+              "type": "string"
+            },
+            {
+              "id": "641cce48-1b6b-5b0d-a417-ae3a42cd97d2",
+              "name": "config.googleSheetRange",
+              "value": "={{ String($env.GOOGLE_SHEET_RANGE ?? 'Targets!A1:I1000').trim() || 'Targets!A1:I1000' }}",
+              "type": "string"
+            },
+            {
+              "id": "a7322357-ccf7-51df-a658-56a08486fcee",
+              "name": "config.hiringProviders",
+              "value": "={{ String($env.HIRING_PROVIDERS ?? 'apollo').toLowerCase().split(',').map(x => x.trim()).filter(x => ['apollo', 'clay'].includes(x)) }}",
+              "type": "array"
+            },
+            {
+              "id": "40bf746c-fd50-5286-b9c1-e5bb1261abd6",
+              "name": "config.useApollo",
+              "value": "={{ !(String($env.SANDBOX_MODE ?? 'true').trim().toLowerCase() !== 'false') && String($env.HIRING_PROVIDERS ?? 'apollo').toLowerCase().split(',').map(x => x.trim()).includes('apollo') }}",
+              "type": "boolean"
+            },
+            {
+              "id": "d5eec1dd-ae5d-5c8c-986d-bec706fea18e",
+              "name": "config.useClay",
+              "value": "={{ !(String($env.SANDBOX_MODE ?? 'true').trim().toLowerCase() !== 'false') && String($env.HIRING_PROVIDERS ?? 'apollo').toLowerCase().split(',').map(x => x.trim()).includes('clay') }}",
+              "type": "boolean"
+            },
+            {
+              "id": "e86b4de5-6933-58ee-ae19-76ef140e8c15",
+              "name": "config.hiringLive",
+              "value": "={{ !(String($env.SANDBOX_MODE ?? 'true').trim().toLowerCase() !== 'false') && (String($env.HIRING_PROVIDERS ?? 'apollo').toLowerCase().split(',').map(x => x.trim()).includes('apollo') || String($env.HIRING_PROVIDERS ?? 'apollo').toLowerCase().split(',').map(x => x.trim()).includes('clay')) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "29f932e0-bbfb-5e64-8397-ba234fb591ca",
+              "name": "config.maxAccountsPerRun",
+              "value": "={{ Math.min(100, Math.max(1, parseFloat($env.MAX_ACCOUNTS_PER_RUN ?? '50') || 50)) }}",
+              "type": "number"
+            },
+            {
+              "id": "ea2eed31-453e-5e7a-bfb0-074d091ee326",
+              "name": "config.minRescanHours",
+              "value": "={{ Math.min(720, Math.max(0, parseFloat($env.MIN_RESCAN_HOURS ?? '20') || 20)) }}",
+              "type": "number"
+            },
+            {
+              "id": "4e1c2f8f-d52b-5d20-b7d1-d4258067c66b",
+              "name": "config.targetDepartments",
+              "value": "={{ String($env.TARGET_DEPARTMENTS ?? 'Engineering,Sales').split(',').map(x => x.trim()).filter(Boolean) }}",
+              "type": "array"
+            },
+            {
+              "id": "277939b4-c482-5379-b0f1-fe392ec1ec6b",
+              "name": "config.deptGrowthThresholdPct",
+              "value": "={{ Math.min(500, Math.max(1, parseFloat($env.DEPT_GROWTH_THRESHOLD_PCT ?? '30') || 30)) }}",
+              "type": "number"
+            },
+            {
+              "id": "a735bbf1-676b-54f3-92aa-236e58fb7ec7",
+              "name": "config.openRolesThreshold",
+              "value": "={{ Math.min(500, Math.max(1, parseFloat($env.OPEN_ROLES_THRESHOLD ?? '5') || 5)) }}",
+              "type": "number"
+            },
+            {
+              "id": "0545bb22-6ec1-503b-900f-4c0b5638801a",
+              "name": "config.totalGrowthThresholdPct",
+              "value": "={{ Math.min(500, Math.max(1, parseFloat($env.TOTAL_GROWTH_THRESHOLD_PCT ?? '15') || 15)) }}",
+              "type": "number"
+            },
+            {
+              "id": "8460a150-de34-5cb6-803e-1086752a8fb4",
+              "name": "config.minDeptBaseline",
+              "value": "={{ Math.min(10000, Math.max(1, parseFloat($env.MIN_DEPT_BASELINE ?? '5') || 5)) }}",
+              "type": "number"
+            },
+            {
+              "id": "3fe4ce4c-603f-5e81-a223-9a8687f4a77f",
+              "name": "config.jobLookbackDays",
+              "value": "={{ Math.min(180, Math.max(1, parseFloat($env.JOB_LOOKBACK_DAYS ?? '30') || 30)) }}",
+              "type": "number"
+            },
+            {
+              "id": "81ef9989-376c-53b8-b0fc-cdeaad306fcf",
+              "name": "config.baselineWindowDays",
+              "value": "={{ Math.min(365, Math.max(7, parseFloat($env.BASELINE_WINDOW_DAYS ?? '30') || 30)) }}",
+              "type": "number"
+            },
+            {
+              "id": "74a9b34a-9863-5ea8-885d-8429257b2318",
+              "name": "config.alertMinTier",
+              "value": "={{ ['hot', 'warm'].includes(String($env.ALERT_MIN_TIER ?? 'warm').trim().toLowerCase()) ? String($env.ALERT_MIN_TIER ?? 'warm').trim().toLowerCase() : 'warm' }}",
+              "type": "string"
+            },
+            {
+              "id": "fc1a15df-6a05-5512-93f4-16d252f1607e",
+              "name": "config.alertCooldownDays",
+              "value": "={{ Math.min(365, Math.max(0, parseFloat($env.ALERT_COOLDOWN_DAYS ?? '14') || 14)) }}",
+              "type": "number"
+            },
+            {
+              "id": "76437d2c-6e32-54bf-bb33-8f92299907c8",
+              "name": "config.taskDueHours",
+              "value": "={{ Math.min(720, Math.max(1, parseFloat($env.TASK_DUE_HOURS ?? '24') || 24)) }}",
+              "type": "number"
+            },
+            {
+              "id": "b979c7c1-e6a1-5d35-9ef8-78b00b7890d5",
+              "name": "config.sdrDefaultOwnerId",
+              "value": "={{ String($env.SDR_DEFAULT_OWNER_ID ?? '').trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "d2c110f2-0a55-5a28-9514-d265ad2ba127",
+              "name": "config.portalId",
+              "value": "={{ String($env.HUBSPOT_PORTAL_ID ?? '').trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "32a599e8-6416-5258-8269-b9daea3611a9",
+              "name": "config.hubspotBaseUrl",
+              "value": "={{ String($env.HUBSPOT_API_BASE_URL ?? 'https://api.hubapi.com').trim().replace(/\\/+$/, '') || 'https://api.hubapi.com' }}",
+              "type": "string"
+            },
+            {
+              "id": "b44fbc17-ec60-504e-9603-85b514e9f6e9",
+              "name": "config.hubspotUiBaseUrl",
+              "value": "={{ String($env.HUBSPOT_UI_BASE_URL ?? 'https://app.hubspot.com').trim().replace(/\\/+$/, '') || 'https://app.hubspot.com' }}",
+              "type": "string"
+            },
+            {
+              "id": "c1db27c0-5c6a-5f57-a569-7e171a18b67a",
+              "name": "config.apolloBaseUrl",
+              "value": "={{ String($env.APOLLO_API_BASE_URL ?? 'https://api.apollo.io').trim().replace(/\\/+$/, '') || 'https://api.apollo.io' }}",
+              "type": "string"
+            },
+            {
+              "id": "75c7a375-2b6c-5254-9f4f-2cab664e202d",
+              "name": "config.runId",
+              "value": "={{ $execution.id }}",
+              "type": "string"
+            },
+            {
+              "id": "9b1bbc29-aaf2-5b17-a52b-b19066c639ef",
+              "name": "config.executionMode",
+              "value": "={{ $execution.mode }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c6ab6b18-b0c2-525c-bcfe-62e25436dc82",
+      "name": "Config & Safety Gate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -480,
+        260
+      ],
+      "notes": "Typed, non-secret runtime configuration under config.*. No secret is ever assigned here.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "12031e46-b1bc-5a22-914c-9c975ea464b3",
+              "leftValue": "={{ $('Config & Safety Gate').first().json.config.sandboxMode }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "66dc81b7-2371-5ec1-a022-bc3125542d24",
+      "name": "Sandbox Mode?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Mock Target Account Scope (SANDBOX_MODE=true)\n// Fictitious target accounts in the same raw shape the HubSpot and Google\n// Sheets adapters emit. Includes one duplicate and one invalid domain so the\n// normalisation stage can be verified.\n// ─────────────────────────────────────────────────────────────────────────────\nconst DAY_MS = 24 * 60 * 60 * 1000;\nconst ago = (days) => new Date(Date.now() - days * DAY_MS).toISOString();\nconst baseline = (days, employees, departments, openRolesTarget) =>\n  JSON.stringify({ capturedAt: ago(days), employees, departments, openRolesTarget });\n\nconst accounts = [\n  { companyId: '600000001', name: 'Apex Dynamics Inc', domain: 'https://www.apex-dynamics.example', employees: 850, ownerId: '71000001',\n    baselineJson: baseline(34, 790, { Engineering: 120, Sales: 60, Marketing: 25, 'Customer Success': 30 }, 3), lastScannedAt: ago(1), lastAlertedAt: null, tier: 'cool' },\n  { companyId: '600000002', name: 'Brightline Robotics Ltd', domain: 'brightline-robotics.example', employees: 320, ownerId: '71000002',\n    baselineJson: baseline(31, 305, { Engineering: 70, Sales: 30, Marketing: 12 }, 2), lastScannedAt: ago(1), lastAlertedAt: null, tier: 'cool' },\n  { companyId: '600000003', name: 'Cobalt Ridge Analytics', domain: 'cobalt-ridge-analytics.example', employees: 140, ownerId: null,\n    baselineJson: baseline(12, 138, { Engineering: 40, Sales: 15 }, 1), lastScannedAt: ago(1), lastAlertedAt: null, tier: 'cool' },\n  { companyId: '600000004', name: 'Driftwood Health Systems', domain: 'driftwood-health.example', employees: 2100, ownerId: '71000001',\n    baselineJson: '', lastScannedAt: null, lastAlertedAt: null, tier: '' },\n  { companyId: '600000005', name: 'Apex Dynamics Inc (duplicate record)', domain: 'apex-dynamics.example', employees: 850, ownerId: null,\n    baselineJson: '', lastScannedAt: null, lastAlertedAt: null, tier: '' },\n  { companyId: '600000006', name: 'Placeholder Import Row', domain: 'not a domain', employees: null, ownerId: null,\n    baselineJson: '', lastScannedAt: null, lastAlertedAt: null, tier: '' },\n];\n\nreturn [{ json: { source: 'synthetic-fixtures', pagesFetched: 0, accounts } }];\n"
+      },
+      "id": "d00352b0-8ecb-5a16-9a69-186fe81800a8",
+      "name": "Mock Target Account Scope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        100
+      ],
+      "notes": "Fictitious accounts incl. a duplicate and an invalid domain.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "9340ed4b-5cb1-52d4-a2ce-9fabea296371",
+              "leftValue": "={{ $('Config & Safety Gate').first().json.config.scopeFromHubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a83b511d-2abc-5181-9351-e42977ecb927",
+      "name": "Scope From HubSpot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config & Safety Gate').first().json.config.hubspotBaseUrl }}/crm/v3/objects/companies/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_PRIVATE_APP_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filterGroups: [{ filters: [{ propertyName: $('Config & Safety Gate').first().json.config.scopeFilterProperty, operator: 'EQ', value: $('Config & Safety Gate').first().json.config.scopeFilterValue }] }], properties: 'name,domain,website,numberofemployees,hubspot_owner_id,hiring_dept_headcount_json,hiring_last_scanned_at,hiring_last_alerted_at,hiring_velocity_tier'.split(','), sorts: [{ propertyName: 'hs_object_id', direction: 'ASCENDING' }], limit: 100 }) }}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "updateAParameterInEachRequest",
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "after",
+                    "value": "={{ $response.body.paging.next.after }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.paging || !$response.body.paging.next || !$response.body.paging.next.after }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20,
+              "requestInterval": 300
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "26d7797d-de57-53b4-be2c-b1d4b61dda98",
+      "name": "HubSpot: Search Target Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "CRM Search with cursor pagination. Scope: crm.objects.companies.read.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Flatten HubSpot Scope\n// Collapses paginated CRM Search responses into one item with a raw\n// `accounts` array, so downstream nodes always receive exactly one item.\n// ─────────────────────────────────────────────────────────────────────────────\nconst accounts = [];\nlet pagesFetched = 0;\n\nfor (const item of $input.all()) {\n  pagesFetched += 1;\n  for (const r of Array.isArray(item.json.results) ? item.json.results : []) {\n    const p = r.properties || {};\n    accounts.push({\n      companyId: String(r.id ?? p.hs_object_id ?? ''),\n      name: p.name || null,\n      domain: p.domain || p.website || null,\n      employees: p.numberofemployees ? Number(p.numberofemployees) : null,\n      ownerId: p.hubspot_owner_id || null,\n      baselineJson: p.hiring_dept_headcount_json || '',\n      lastScannedAt: p.hiring_last_scanned_at || null,\n      lastAlertedAt: p.hiring_last_alerted_at || null,\n      tier: p.hiring_velocity_tier || '',\n    });\n  }\n}\nreturn [{ json: { source: 'hubspot', pagesFetched, accounts } }];\n"
+      },
+      "id": "37408f3b-0d01-598e-8540-e64cddb49557",
+      "name": "Flatten HubSpot Scope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values/{{ encodeURIComponent($('Config & Safety Gate').first().json.config.googleSheetRange) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GOOGLE_SHEETS_API_KEY }}"
+            },
+            {
+              "name": "majorDimension",
+              "value": "ROWS"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "21707c93-3d5b-5f5c-ab3c-6bdf8a5d10b7",
+      "name": "Google Sheets: Read Target Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        480
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000,
+      "notes": "Sheets API v4 values.get. Restrict the API key to the Sheets API and your egress IPs.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Parse Sheet Scope\n// Converts a Google Sheets values.get response into raw accounts. The first\n// row is the header. Recognised columns (case-insensitive):\n//   company_name, domain, employees, hubspot_company_id, owner_id,\n//   baseline_json, last_scanned_at, last_alerted_at, tier\n// Rows without a HubSpot company ID are scored and alerted but never synced.\n// ─────────────────────────────────────────────────────────────────────────────\nconst rows = Array.isArray($input.first().json.values) ? $input.first().json.values : [];\nif (rows.length < 2) return [{ json: { source: 'google-sheets', pagesFetched: 1, accounts: [] } }];\n\nconst header = rows[0].map((h) => String(h || '').trim().toLowerCase());\nconst col = (name) => header.indexOf(name);\nconst get = (row, name) => {\n  const i = col(name);\n  return i >= 0 && row[i] !== undefined ? String(row[i]).trim() : '';\n};\n\nconst accounts = rows.slice(1)\n  .filter((row) => row.some((c) => String(c || '').trim() !== ''))\n  .map((row) => ({\n    companyId: /^\\d+$/.test(get(row, 'hubspot_company_id')) ? get(row, 'hubspot_company_id') : null,\n    name: get(row, 'company_name') || null,\n    domain: get(row, 'domain') || null,\n    employees: get(row, 'employees') ? Number(get(row, 'employees')) : null,\n    ownerId: get(row, 'owner_id') || null,\n    baselineJson: get(row, 'baseline_json'),\n    lastScannedAt: get(row, 'last_scanned_at') || null,\n    lastAlertedAt: get(row, 'last_alerted_at') || null,\n    tier: get(row, 'tier'),\n  }));\n\nreturn [{ json: { source: 'google-sheets', pagesFetched: 1, accounts } }];\n"
+      },
+      "id": "35a032ed-28ee-5c49-900e-de6f8b460121",
+      "name": "Parse Sheet Scope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Normalize Target Accounts\n// Normalises domains, drops invalid/consumer/reserved domains, de-duplicates\n// by domain, parses the stored rolling baseline, honours MIN_RESCAN_HOURS and\n// caps the run at MAX_ACCOUNTS_PER_RUN. Emits one item per account to scan.\n// ─────────────────────────────────────────────────────────────────────────────\nconst cfg = $('Config & Safety Gate').first().json.config;\nconst { source, pagesFetched, accounts = [] } = $input.first().json;\nconst HOUR_MS = 60 * 60 * 1000;\n\nconst CONSUMER = ['gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com', 'gmx.com', 'mail.com', 'yandex.com', 'zoho.com', 'qq.com'];\nconst RESERVED_TLDS = ['test', 'invalid', 'localhost', 'local', 'internal', 'lan'];\n// .example is accepted only for sandbox runs and manual test executions.\nif (!cfg.sandboxMode && cfg.executionMode === 'production') RESERVED_TLDS.push('example');\nconst DOMAIN_RE = /^(?=.{4,253}$)(?:(?!-)[a-z0-9-]{1,63}(?<!-)\\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})$/;\n\nfunction normalizeDomain(raw) {\n  let d = String(raw || '').trim().toLowerCase();\n  if (!d) return null;\n  if (d.includes('@')) d = d.split('@').pop();\n  d = d.replace(/^[a-z][a-z0-9+.-]*:\\/\\//, '').split(/[/?#]/)[0];\n  d = d.replace(/:\\d+$/, '').replace(/\\.+$/, '').replace(/^www\\d?\\./, '');\n  return d || null;\n}\nfunction parseBaseline(raw) {\n  if (!raw) return null;\n  try {\n    const b = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    if (!b || typeof b !== 'object' || !b.capturedAt) return null;\n    const departments = {};\n    for (const [k, v] of Object.entries(b.departments || {})) if (Number.isFinite(Number(v))) departments[k] = Number(v);\n    return {\n      capturedAt: b.capturedAt,\n      employees: Number.isFinite(Number(b.employees)) ? Number(b.employees) : null,\n      departments,\n      openRolesTarget: Number.isFinite(Number(b.openRolesTarget)) ? Number(b.openRolesTarget) : null,\n    };\n  } catch (e) {\n    return null;\n  }\n}\n\nconst stats = { source, pagesFetched, received: accounts.length, invalidDomain: 0, consumerDomain: 0, reservedTld: 0, duplicate: 0, recentlyScanned: 0, overCap: 0, selected: 0 };\nconst seen = new Set();\nconst selected = [];\n\nfor (const a of accounts) {\n  const domain = normalizeDomain(a.domain);\n  if (!domain || !DOMAIN_RE.test(domain)) { stats.invalidDomain += 1; continue; }\n  if (RESERVED_TLDS.includes(domain.split('.').pop())) { stats.reservedTld += 1; continue; }\n  if (CONSUMER.some((c) => domain === c || domain.endsWith(`.${c}`))) { stats.consumerDomain += 1; continue; }\n  if (seen.has(domain)) { stats.duplicate += 1; continue; }\n  seen.add(domain);\n\n  const lastScanMs = a.lastScannedAt ? Date.parse(a.lastScannedAt) : NaN;\n  if (!cfg.sandboxMode && Number.isFinite(lastScanMs) && Date.now() - lastScanMs < cfg.minRescanHours * HOUR_MS) {\n    stats.recentlyScanned += 1;\n    continue;\n  }\n  if (selected.length >= cfg.maxAccountsPerRun) { stats.overCap += 1; continue; }\n\n  selected.push({\n    companyId: a.companyId ? String(a.companyId) : null,\n    name: String(a.name || domain).trim().slice(0, 200),\n    domain,\n    employees: Number.isFinite(Number(a.employees)) && a.employees !== null ? Number(a.employees) : null,\n    ownerId: a.ownerId ? String(a.ownerId) : null,\n    baseline: parseBaseline(a.baselineJson),\n    lastAlertedAt: a.lastAlertedAt || null,\n    previousTier: a.tier || null,\n  });\n}\nstats.selected = selected.length;\n\nif (selected.length === 0) return [{ json: { domain: null, skipReason: 'No eligible target accounts in scope.', stats } }];\nreturn selected.map((s) => ({ json: { ...s, scopeStats: stats } }));\n"
+      },
+      "id": "0cb02543-aa4e-5d2e-987d-32d3d492668d",
+      "name": "Normalize Target Accounts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        260
+      ],
+      "notes": "Domain normalisation, de-duplication, baseline parsing, rescan guard, cap.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "080e2391-a8f6-5edc-8cb8-fd324ecd02ab",
+              "leftValue": "={{ $json.domain }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e0004a1f-97e7-5c63-9902-a5d3b75ba9ae",
+      "name": "Has Accounts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        840,
+        260
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "546063dc-0dc8-5cfe-9c6a-bbe023a94231",
+      "name": "No Accounts: End",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        440
+      ],
+      "notes": "Inspect skipReason and stats.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c58acb30-ebec-50a9-9699-0e24b8775a8f",
+              "leftValue": "={{ $('Config & Safety Gate').first().json.config.hiringLive }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d2df763e-f718-5647-93e9-46bc5f196728",
+      "name": "Hiring Live?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Mock Hiring Intelligence (SANDBOX_MODE=true or no live provider enabled)\n// Fictitious Apollo- and Clay-shaped signals per account, already normalised\n// to the shape emitted by the live Attach nodes. Profiles are chosen so the\n// sandbox shows one hot, one warm, one cool and one first-scan account.\n// ─────────────────────────────────────────────────────────────────────────────\nconst DAY_MS = 24 * 60 * 60 * 1000;\nconst ago = (days) => new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);\nconst jobs = (domain, list) => list.map(([title, days, location], i) => ({\n  title, department: null, postedAt: ago(days), location, url: `https://careers.${domain}/jobs/${1000 + i}`,\n}));\n\nconst PROFILES = {\n  'apex-dynamics.example': {\n    apollo: { employees: 905, growth6mPct: 14.2, deptHeadcount: { Engineering: 168, Sales: 71, Marketing: 27, 'Customer Success': 33 } },\n    jobs: [\n      ['Senior Software Engineer, Platform', 3, 'Remote, US'], ['Staff Backend Engineer', 5, 'Austin, TX'],\n      ['Site Reliability Engineer', 6, 'Remote, US'], ['Engineering Manager, Payments', 9, 'Denver, CO'],\n      ['Machine Learning Engineer', 11, 'Remote, US'], ['Frontend Engineer', 12, 'Austin, TX'],\n      ['Security Engineer', 14, 'Remote, US'], ['DevOps Engineer', 18, 'Denver, CO'],\n      ['Account Executive, Enterprise', 4, 'Chicago, IL'], ['Sales Development Representative', 7, 'Chicago, IL'],\n      ['Sales Engineer', 10, 'Remote, US'], ['Product Marketing Manager', 15, 'Remote, US'],\n    ],\n    clayExtra: [['QA Automation Engineer', 2, 'Remote, US'], ['Senior Software Engineer, Platform', 3, 'Remote, US']],\n  },\n  'brightline-robotics.example': {\n    apollo: { employees: 331, growth6mPct: 6.1, deptHeadcount: { Engineering: 74, Sales: 34, Marketing: 12 } },\n    jobs: [\n      ['Account Executive, Mid-Market', 2, 'Boston, MA'], ['Account Executive, Enterprise', 6, 'Remote, US'],\n      ['Business Development Representative', 8, 'Boston, MA'], ['Regional Sales Manager', 13, 'Remote, US'],\n      ['Sales Development Representative', 16, 'Boston, MA'], ['Solutions Consultant', 20, 'Remote, US'],\n      ['Firmware Engineer', 22, 'Boston, MA'],\n    ],\n    clayExtra: [],\n  },\n  'cobalt-ridge-analytics.example': {\n    apollo: { employees: 141, growth6mPct: 1.0, deptHeadcount: { Engineering: 41, Sales: 15 } },\n    jobs: [['Data Engineer', 19, 'Remote, US'], ['Customer Success Manager', 25, 'Remote, US']],\n    clayExtra: [],\n  },\n  'driftwood-health.example': {\n    apollo: { employees: 2260, growth6mPct: 22.4, deptHeadcount: { Engineering: 310, Sales: 140, Operations: 420 } },\n    jobs: [\n      ['Software Engineer, Integrations', 4, 'Nashville, TN'], ['Implementation Specialist', 6, 'Remote, US'],\n      ['Account Executive, Health Systems', 9, 'Remote, US'], ['Revenue Operations Analyst', 12, 'Nashville, TN'],\n    ],\n    clayExtra: [['Clinical Operations Manager', 3, 'Nashville, TN']],\n  },\n};\n\nreturn $input.all().map((item) => {\n  const a = item.json;\n  const p = PROFILES[a.domain] || {\n    apollo: { employees: a.employees, growth6mPct: 0, deptHeadcount: {} },\n    jobs: [['Software Engineer', 10, 'Remote, US']],\n    clayExtra: [],\n  };\n  const apolloJobs = jobs(a.domain, p.jobs);\n  const clayJobs = jobs(a.domain, [...p.jobs.slice(0, 3), ...p.clayExtra]).map((j) => ({ ...j, url: `${j.url}?src=clay` }));\n  return {\n    json: {\n      ...a,\n      apollo: { provider: 'apollo', organizationId: `syn-org-${a.companyId || a.domain}`, ...p.apollo, jobs: apolloJobs, error: null },\n      clay: { provider: 'clay', employees: p.apollo.employees, growth6mPct: null, deptHeadcount: {}, jobs: clayJobs, error: null },\n      mock: true,\n    },\n  };\n});\n"
+      },
+      "id": "e0e69696-6b19-599e-a8a4-1581677d4a96",
+      "name": "Mock Hiring Intelligence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        360
+      ],
+      "notes": "Offline Apollo/Clay-shaped signals.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "14d67b14-e44c-508a-9faa-0823fcf04477",
+              "leftValue": "={{ $('Config & Safety Gate').first().json.config.useApollo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a4a0d914-e2d7-51f6-b9a1-13bec50b1a22",
+      "name": "Apollo Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config & Safety Gate').first().json.config.apolloBaseUrl }}/api/v1/organizations/enrich",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.APOLLO_API_KEY }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $json.domain }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 600
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "5d1301a5-666a-59f5-ab57-e14c5c840a81",
+      "name": "Apollo: Enrich Organization",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Headcount, departmental headcount and growth. Consumes Apollo credits.",
+      "notesInFlow": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config & Safety Gate').first().json.config.apolloBaseUrl }}/api/v1/organizations/{{ $json.organization?.id ?? 'unresolved' }}/job_postings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.APOLLO_API_KEY }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "page",
+              "value": "1"
+            },
+            {
+              "name": "per_page",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 600
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "3996d57e-983b-5610-b1c6-360c1b160f11",
+      "name": "Apollo: Job Postings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Current job postings for the enriched organization.",
+      "notesInFlow": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Attach Apollo Signals\n// Combines Apollo organization enrichment (headcount, departmental headcount,\n// growth) with the organization job postings response. HTTP nodes emit one\n// item per input, so the account, enrichment and postings align by index.\n// ─────────────────────────────────────────────────────────────────────────────\nconst accounts = $('Apollo Enabled?').all();\nconst enrich = $('Apollo: Enrich Organization').all();\n\n// Apollo departmental_head_count keys → radar departments.\nconst DEPT_MAP = {\n  engineering: 'Engineering', information_technology: 'Engineering',\n  sales: 'Sales', business_development: 'Sales',\n  marketing: 'Marketing',\n  support: 'Customer Success',\n  product_management: 'Product', arts_and_design: 'Product',\n  data_science: 'Data',\n  operations: 'Operations',\n  finance: 'Finance', accounting: 'Finance',\n  human_resources: 'People',\n};\nconst pct = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 1000) / 10);\n\nreturn $input.all().map((item, i) => {\n  const account = accounts[i] ? accounts[i].json : {};\n  const e = enrich[i] ? enrich[i].json : {};\n  const org = e.organization || {};\n  const errors = [e.error, item.json.error].filter(Boolean).map((x) => String(x.message || x));\n\n  const deptHeadcount = {};\n  for (const [k, v] of Object.entries(org.departmental_head_count || {})) {\n    const dept = DEPT_MAP[k];\n    if (dept && Number.isFinite(Number(v))) deptHeadcount[dept] = (deptHeadcount[dept] || 0) + Number(v);\n  }\n\n  const postings = Array.isArray(item.json.organization_job_postings) ? item.json.organization_job_postings : [];\n  const jobs = postings.map((p) => ({\n    title: String(p.title || '').slice(0, 160),\n    department: null,\n    postedAt: p.posted_at ? String(p.posted_at).slice(0, 10) : (p.last_seen_at ? String(p.last_seen_at).slice(0, 10) : null),\n    location: [p.city, p.state, p.country].filter(Boolean).join(', ') || null,\n    url: p.url ? String(p.url) : null,\n  })).filter((j) => j.title);\n\n  return {\n    json: {\n      ...account,\n      apollo: {\n        provider: 'apollo',\n        organizationId: org.id || null,\n        employees: Number.isFinite(Number(org.estimated_num_employees)) ? Number(org.estimated_num_employees) : null,\n        growth6mPct: pct(org.organization_headcount_six_month_growth),\n        growth12mPct: pct(org.organization_headcount_twelve_month_growth),\n        deptHeadcount,\n        jobs,\n        error: errors.length ? errors.join(' | ') : null,\n      },\n    },\n  };\n});\n"
+      },
+      "id": "4d190e4a-fe8e-5b6b-a1a0-4ad86e220d6c",
+      "name": "Attach Apollo Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Skip Apollo: HIRING_PROVIDERS excludes apollo for this run.\nreturn $input.all().map((item) => ({ json: { ...item.json, apollo: null } }));\n"
+      },
+      "id": "6b48f1af-f4cb-5acb-abd7-96ee5ef5df46",
+      "name": "Skip Apollo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "91a0417c-f878-58fb-8235-12faa3d0df93",
+              "leftValue": "={{ $('Config & Safety Gate').first().json.config.useClay }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "fd59f9f4-8af0-527d-b26f-15fa862d13b3",
+      "name": "Clay Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CLAY_HIRING_ENDPOINT_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.CLAY_API_KEY }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ domain: $json.domain, company_name: $json.name, target_departments: $('Config & Safety Gate').first().json.config.targetDepartments, lookback_days: $('Config & Safety Gate').first().json.config.jobLookbackDays }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1000
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "d03dbacc-3fce-5437-96d7-b8feed678c6e",
+      "name": "Clay: Hiring Lookup",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2380,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Your Clay endpoint (see README §7.11 for the response contract). The URL is treated as a secret.",
+      "notesInFlow": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Attach Clay Signals\n// Normalises the response of your Clay hiring endpoint. The adapter accepts\n// the documented contract (README §7.11) and common variants:\n//   jobs | open_roles | data.jobs            → [{ title, department?, posted_at?, location?, url? }]\n//   headcount.total | employee_count         → number\n//   headcount.by_department | departments    → { \"<Department>\": number }\n//   headcount_growth_90d_pct | growth_pct    → number (percent)\n// Items align by index with the Clay Enabled? gate output.\n// ─────────────────────────────────────────────────────────────────────────────\nconst bases = $('Clay Enabled?').all();\nconst CANON = ['Engineering', 'Sales', 'Marketing', 'Customer Success', 'Product', 'Data', 'Operations', 'Finance', 'People'];\nconst canon = (k) => CANON.find((c) => c.toLowerCase() === String(k).trim().toLowerCase().replace(/_/g, ' ')) || null;\n\nreturn $input.all().map((item, i) => {\n  const base = bases[i] ? bases[i].json : {};\n  const b = item.json || {};\n  const rawJobs = b.jobs || b.open_roles || (b.data && b.data.jobs) || [];\n  const jobs = (Array.isArray(rawJobs) ? rawJobs : []).map((j) => ({\n    title: String(j.title || j.job_title || '').slice(0, 160),\n    department: j.department ? canon(j.department) : null,\n    postedAt: j.posted_at || j.postedAt || j.date ? String(j.posted_at || j.postedAt || j.date).slice(0, 10) : null,\n    location: j.location || null,\n    url: j.url || j.job_url || null,\n  })).filter((j) => j.title);\n\n  const hc = b.headcount || {};\n  const deptRaw = hc.by_department || b.departments || {};\n  const deptHeadcount = {};\n  for (const [k, v] of Object.entries(deptRaw)) {\n    const d = canon(k);\n    if (d && Number.isFinite(Number(v))) deptHeadcount[d] = Number(v);\n  }\n  const employees = Number(hc.total ?? b.employee_count);\n  const growth = Number(b.headcount_growth_90d_pct ?? b.growth_pct);\n\n  return {\n    json: {\n      ...base,\n      clay: {\n        provider: 'clay',\n        employees: Number.isFinite(employees) ? employees : null,\n        growth6mPct: null,\n        growth90dPct: Number.isFinite(growth) ? growth : null,\n        deptHeadcount,\n        jobs,\n        error: b.error ? String(b.error.message || b.error) : null,\n      },\n    },\n  };\n});\n"
+      },
+      "id": "5deec246-8454-53d9-9455-4ca88f229213",
+      "name": "Attach Clay Signals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Skip Clay: HIRING_PROVIDERS excludes clay for this run.\nreturn $input.all().map((item) => ({ json: { ...item.json, clay: null } }));\n"
+      },
+      "id": "c508d0a0-83c1-54ab-b2e1-48ee50b60561",
+      "name": "Skip Clay",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Score Hiring Velocity\n// Merges provider signals per account, classifies roles by department,\n// computes velocity deltas against the rolling baseline, and evaluates the\n// spike thresholds. Produces the score, tier, triggers, alert decision and\n// the next baseline snapshot.\n// ─────────────────────────────────────────────────────────────────────────────\nconst cfg = $('Config & Safety Gate').first().json.config;\nconst DAY_MS = 24 * 60 * 60 * 1000;\nconst now = Date.now();\n\n// Order matters: \"Sales Engineer\" is Sales, \"Support Engineer\" is Customer Success.\nconst RULES = [\n  ['Sales', /\\b(sales|account executive|\\bae\\b|sdr|bdr|business development|account manager|solutions consultant|revenue)\\b/i],\n  ['Customer Success', /\\b(customer success|support|implementation|onboarding|customer experience|technical account)\\b/i],\n  ['Data', /\\b(data (scien|engineer|analy)|analytics|machine learning|\\bml\\b|\\bai\\b)/i],\n  ['Engineering', /\\b(engineer|engineering|developer|devops|sre|software|platform|architect|\\bqa\\b|firmware|security)\\b/i],\n  ['Product', /\\b(product manager|product owner|\\bux\\b|\\bui\\b|designer|design lead)\\b/i],\n  ['Marketing', /\\b(marketing|demand gen|content|brand|seo|growth|communications)\\b/i],\n  ['Operations', /\\b(operations|logistics|supply chain|procurement|clinical)\\b/i],\n  ['Finance', /\\b(finance|accountant|controller|fp&a|payroll|treasury)\\b/i],\n  ['People', /\\b(recruit|talent|people|human resources|\\bhr\\b)\\b/i],\n];\nconst classify = (title) => (RULES.find(([, re]) => re.test(title)) || ['Other'])[0];\nconst targets = cfg.targetDepartments;\nconst tierRank = { cool: 0, warm: 1, hot: 2 };\nconst round1 = (n) => Math.round(n * 10) / 10;\n\nreturn $input.all().map((item) => {\n  const a = item.json;\n  const providers = [a.apollo, a.clay].filter(Boolean);\n  const errors = providers.map((p) => p.error && `${p.provider}: ${p.error}`).filter(Boolean);\n\n  // ── Jobs: union, de-duplicate, recency window, classify ─────────────────\n  const jobMap = new Map();\n  for (const p of providers) {\n    for (const j of p.jobs || []) {\n      const key = `${j.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}|${String(j.location || '').toLowerCase()}`;\n      if (jobMap.has(key)) { jobMap.get(key).sources.push(p.provider); continue; }\n      const postedMs = j.postedAt ? Date.parse(j.postedAt) : NaN;\n      if (Number.isFinite(postedMs) && now - postedMs > cfg.jobLookbackDays * DAY_MS) continue;\n      jobMap.set(key, { ...j, department: j.department || classify(j.title), ageDays: Number.isFinite(postedMs) ? Math.floor((now - postedMs) / DAY_MS) : null, sources: [p.provider] });\n    }\n  }\n  const jobs = [...jobMap.values()];\n  const rolesByDept = {};\n  for (const j of jobs) rolesByDept[j.department] = (rolesByDept[j.department] || 0) + 1;\n  const targetRoles = jobs.filter((j) => targets.includes(j.department));\n  const openRolesTarget = targetRoles.length;\n  const freshTargetRoles = targetRoles.filter((j) => j.ageDays !== null && j.ageDays <= 7).length;\n\n  // ── Headcount: Apollo first, Clay as fallback ───────────────────────────\n  const deptNow = Object.keys(a.apollo?.deptHeadcount || {}).length ? a.apollo.deptHeadcount : (a.clay?.deptHeadcount || {});\n  const employeesNow = a.apollo?.employees ?? a.clay?.employees ?? a.employees ?? null;\n  const base = a.baseline;\n\n  const deptGrowth = {};\n  let topDept = null;\n  for (const d of targets) {\n    const cur = deptNow[d];\n    const prev = base?.departments?.[d];\n    if (Number.isFinite(cur) && Number.isFinite(prev) && prev >= cfg.minDeptBaseline) {\n      deptGrowth[d] = round1(((cur - prev) / prev) * 100);\n      if (!topDept || deptGrowth[d] > deptGrowth[topDept]) topDept = d;\n    }\n  }\n\n  let totalGrowthPct = null;\n  let totalGrowthBasis = null;\n  if (base?.employees && employeesNow) {\n    totalGrowthPct = round1(((employeesNow - base.employees) / base.employees) * 100);\n    totalGrowthBasis = 'baseline';\n  } else if (a.apollo?.growth6mPct !== null && a.apollo?.growth6mPct !== undefined) {\n    totalGrowthPct = a.apollo.growth6mPct;\n    totalGrowthBasis = 'apollo_6m';\n  } else if (a.clay?.growth90dPct !== null && a.clay?.growth90dPct !== undefined) {\n    totalGrowthPct = a.clay.growth90dPct;\n    totalGrowthBasis = 'clay_90d';\n  }\n\n  // ── Triggers and score ──────────────────────────────────────────────────\n  const topGrowth = topDept ? deptGrowth[topDept] : null;\n  const triggers = [];\n  if (topGrowth !== null && topGrowth >= cfg.deptGrowthThresholdPct) triggers.push(`dept_surge:${topDept}`);\n  if (openRolesTarget > cfg.openRolesThreshold) triggers.push('open_roles_spike');\n  if (totalGrowthPct !== null && totalGrowthPct >= cfg.totalGrowthThresholdPct) triggers.push('headcount_surge');\n\n  const components = {\n    deptGrowth: topGrowth > 0 ? Math.min(40, (topGrowth / cfg.deptGrowthThresholdPct) * 28) : 0,\n    openRoles: Math.min(35, (openRolesTarget / Math.max(1, cfg.openRolesThreshold)) * 21),\n    totalGrowth: totalGrowthPct > 0 ? Math.min(15, (totalGrowthPct / cfg.totalGrowthThresholdPct) * 10) : 0,\n    freshness: Math.min(10, freshTargetRoles * 2),\n  };\n  const score = Math.round(Object.values(components).reduce((s, v) => s + v, 0));\n  const tier = score >= 70 || triggers.length >= 2 ? 'hot' : score >= 45 || triggers.length === 1 ? 'warm' : 'cool';\n\n  const lastAlertMs = a.lastAlertedAt ? Date.parse(a.lastAlertedAt) : NaN;\n  const inCooldown = Number.isFinite(lastAlertMs) && now - lastAlertMs < cfg.alertCooldownDays * DAY_MS;\n  const meetsTier = tierRank[tier] >= tierRank[cfg.alertMinTier];\n  const alert = meetsTier && triggers.length > 0 && !inCooldown;\n\n  // ── Rolling baseline: roll forward only when older than the window ──────\n  const baseAgeDays = base?.capturedAt ? (now - Date.parse(base.capturedAt)) / DAY_MS : Infinity;\n  const nextBaseline = !base || baseAgeDays >= cfg.baselineWindowDays\n    ? { capturedAt: new Date(now).toISOString(), employees: employeesNow, departments: deptNow, openRolesTarget }\n    : base;\n\n  const parts = [];\n  if (topGrowth !== null) parts.push(`${topDept} headcount ${topGrowth >= 0 ? '+' : ''}${topGrowth}% vs. baseline`);\n  parts.push(`${openRolesTarget} open ${targets.join('/')} roles (${freshTargetRoles} in last 7 days)`);\n  if (totalGrowthPct !== null) parts.push(`total headcount ${totalGrowthPct >= 0 ? '+' : ''}${totalGrowthPct}% (${totalGrowthBasis})`);\n\n  return {\n    json: {\n      companyId: a.companyId,\n      name: a.name,\n      domain: a.domain,\n      ownerId: a.ownerId,\n      previousTier: a.previousTier,\n      score,\n      tier,\n      triggers,\n      alert,\n      alertSuppressedReason: !alert ? (triggers.length === 0 ? 'no_trigger' : !meetsTier ? 'below_alert_tier' : inCooldown ? 'cooldown' : null) : null,\n      components: Object.fromEntries(Object.entries(components).map(([k, v]) => [k, round1(v)])),\n      metrics: {\n        employeesNow, totalGrowthPct, totalGrowthBasis, deptNow, deptGrowth, topDept, topGrowth,\n        openRolesTotal: jobs.length, openRolesTarget, freshTargetRoles, rolesByDept,\n        baselineCapturedAt: base?.capturedAt || null, baselineAgeDays: Number.isFinite(baseAgeDays) ? Math.round(baseAgeDays) : null,\n      },\n      summary: parts.join(' · '),\n      sampleRoles: targetRoles.sort((x, y) => (x.ageDays ?? 99) - (y.ageDays ?? 99)).slice(0, 5).map((j) => ({ title: j.title, department: j.department, location: j.location, ageDays: j.ageDays, url: j.url })),\n      nextBaseline,\n      providers: providers.map((p) => p.provider),\n      providerErrors: errors,\n      mock: Boolean(a.mock),\n    },\n  };\n});\n"
+      },
+      "id": "78679a6d-5610-5060-831d-b334dd179506",
+      "name": "Score Hiring Velocity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2820,
+        160
+      ],
+      "notes": "Department classification, deltas, thresholds, score, tier, alert decision.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// Compose Sync & Alert Payloads\n// Builds three batch payloads for the whole run:\n//   1. HubSpot companies batch update (radar properties on every scanned account)\n//   2. HubSpot tasks batch create (high-intent SDR tasks for alerted accounts)\n//   3. One Slack Block Kit digest of alerted accounts\n// Accounts without a HubSpot company ID (sheet-only rows) are alerted but\n// never synced.\n// ─────────────────────────────────────────────────────────────────────────────\nconst cfg = $('Config & Safety Gate').first().json.config;\nconst scope = $('Normalize Target Accounts').first().json.scopeStats || {};\nconst accounts = $input.all().map((i) => i.json);\nconst nowIso = new Date().toISOString();\nconst HOUR_MS = 60 * 60 * 1000;\nconst TIER_EMOJI = { hot: '🔥', warm: '🌡️', cool: '❄️' };\n// Account names and job titles come from external systems: escape before rendering HTML.\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\n\nconst alerted = accounts.filter((a) => a.alert).sort((x, y) => y.score - x.score);\nconst recordUrl = (id) => (cfg.portalId && id ? `${cfg.hubspotUiBaseUrl}/contacts/${cfg.portalId}/record/0-2/${id}` : null);\n\n// ── 1. Company property updates ───────────────────────────────────────────\nconst updates = accounts.filter((a) => a.companyId).map((a) => {\n  const properties = {\n    hiring_velocity_score: String(a.score),\n    hiring_velocity_tier: a.tier,\n    hiring_open_roles_target: String(a.metrics.openRolesTarget),\n    hiring_open_roles_total: String(a.metrics.openRolesTotal),\n    hiring_signal_summary: `${a.summary}${a.triggers.length ? ` · triggers: ${a.triggers.join(', ')}` : ''}`.slice(0, 1000),\n    hiring_dept_headcount_json: JSON.stringify(a.nextBaseline),\n    hiring_last_scanned_at: nowIso,\n  };\n  if (a.alert) properties.hiring_last_alerted_at = nowIso;\n  return { id: String(a.companyId), properties };\n});\n\n// ── 2. SDR tasks ──────────────────────────────────────────────────────────\nconst taskBody = (a) => [\n  `<p><strong>Hiring velocity alert: ${esc(a.name)}</strong> (${esc(a.domain)})</p>`,\n  `<p>Score <strong>${a.score}/100</strong> · tier <strong>${a.tier.toUpperCase()}</strong> · triggers: ${esc(a.triggers.join(', '))}</p>`,\n  `<p>${esc(a.summary)}</p>`,\n  a.sampleRoles.length ? `<p>Recent target-department roles:</p><ul>${a.sampleRoles.map((r) => `<li>${esc(r.title)} (${esc(r.department)}${r.location ? `, ${esc(r.location)}` : ''}${r.ageDays !== null ? `, ${r.ageDays}d ago` : ''})</li>`).join('')}</ul>` : '',\n  '<p><em>Suggested play: reference the team expansion, not the job post itself. Lead with the operational pain that follows rapid hiring in the surging department.</em></p>',\n  `<p><em>Generated by n8n-clay-hiring-velocity-target-account-radar (dhRobin Systems), run ${cfg.runId}. Verify signals before outreach.</em></p>`,\n].join('');\n\nconst tasks = cfg.createSdrTasks ? alerted.filter((a) => a.companyId).map((a) => {\n  const ownerId = a.ownerId || cfg.sdrDefaultOwnerId || null;\n  const properties = {\n    hs_timestamp: new Date(Date.now() + cfg.taskDueHours * HOUR_MS).toISOString(),\n    hs_task_subject: `${TIER_EMOJI[a.tier]} Hiring surge: ${a.name} (score ${a.score})`.slice(0, 250),\n    hs_task_body: taskBody(a),\n    hs_task_status: 'NOT_STARTED',\n    hs_task_priority: a.tier === 'hot' ? 'HIGH' : 'MEDIUM',\n    hs_task_type: 'TODO',\n  };\n  if (ownerId) properties.hubspot_owner_id = String(ownerId);\n  return {\n    properties,\n    associations: [{ to: { id: String(a.companyId) }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 192 }] }],\n  };\n}) : [];\n\n// ── 3. Slack digest ───────────────────────────────────────────────────────\nconst clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);\nconst modeTags = [cfg.sandboxMode ? 'SANDBOX' : 'LIVE', cfg.dryRun ? 'DRY RUN' : 'SYNCED', `providers: ${cfg.hiringLive ? cfg.hiringProviders.join('+') : 'mock'}`].join(' · ');\nconst accountBlocks = alerted.slice(0, 10).flatMap((a) => {\n  const link = recordUrl(a.companyId);\n  const roles = a.sampleRoles.slice(0, 3).map((r) => `• ${r.title}${r.ageDays !== null ? ` _(${r.ageDays}d)_` : ''}`).join('\\n');\n  const block = {\n    type: 'section',\n    text: { type: 'mrkdwn', text: clip(`${TIER_EMOJI[a.tier]} *${a.name}* (${a.domain}): score *${a.score}*, ${a.tier}\\n${a.summary}\\n${roles}`, 2900) },\n  };\n  if (link) block.accessory = { type: 'button', text: { type: 'plain_text', text: 'Open in HubSpot' }, url: link };\n  return [block, { type: 'divider' }];\n});\nconst tierCounts = accounts.reduce((m, a) => ({ ...m, [a.tier]: (m[a.tier] || 0) + 1 }), {});\nconst slackPayload = {\n  text: `Hiring velocity radar: ${alerted.length} account(s) heating up`,\n  blocks: [\n    { type: 'header', text: { type: 'plain_text', text: `📡 Hiring Velocity Radar: ${alerted.length} account${alerted.length === 1 ? '' : 's'} heating up` } },\n    { type: 'context', elements: [{ type: 'mrkdwn', text: clip(`Scanned *${accounts.length}* · 🔥 ${tierCounts.hot || 0} · 🌡️ ${tierCounts.warm || 0} · ❄️ ${tierCounts.cool || 0} · ${modeTags}`, 2900) }] },\n    { type: 'divider' },\n    ...accountBlocks,\n    ...(alerted.length > 10 ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `+${alerted.length - 10} more in HubSpot (filter: hiring_velocity_tier).` }] }] : []),\n    { type: 'context', elements: [{ type: 'mrkdwn', text: `n8n-clay-hiring-velocity-target-account-radar · dhRobin Systems · run ${cfg.runId}` }] },\n  ],\n};\n\nreturn [{\n  json: {\n    dryRun: cfg.dryRun,\n    syncToHubspot: cfg.syncToHubspot,\n    notifySlack: cfg.notifySlack,\n    counts: { scanned: accounts.length, alerted: alerted.length, updates: updates.length, tasks: tasks.length, ...tierCounts },\n    scope,\n    hubspotBatchUpdate: { inputs: updates },\n    hubspotTaskBatch: { inputs: tasks },\n    slackPayload,\n    accounts: accounts.map((a) => ({ name: a.name, domain: a.domain, companyId: a.companyId, score: a.score, tier: a.tier, triggers: a.triggers, alert: a.alert, alertSuppressedReason: a.alertSuppressedReason, summary: a.summary, providerErrors: a.providerErrors })),\n  },\n}];\n"
+      },
+      "id": "4af42139-ff2f-578a-9011-ad41d9f60ce2",
+      "name": "Compose Sync & Alert Payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3040,
+        160
+      ],
+      "notes": "HubSpot batch update, SDR task batch, Slack digest.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bf29a8e7-4b7f-50cc-a0b6-c7426a461935",
+              "leftValue": "={{ $json.dryRun }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "49a13c24-4b83-50e4-822f-5f756091827f",
+      "name": "Dry Run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3260,
+        160
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "0e6beced-83ed-584c-9ea5-9333f8fc22e1",
+      "name": "Dry Run: Radar Preview",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        3480,
+        -20
+      ],
+      "notes": "Review accounts, counts, hubspotBatchUpdate, hubspotTaskBatch and slackPayload. Nothing is sent while DRY_RUN is not 'false'.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "117addf4-86f1-5975-adb0-8a60464cc086",
+              "leftValue": "={{ $json.syncToHubspot }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "9ff03840-eb8a-54b0-9824-139218027de0",
+              "leftValue": "={{ $json.counts.updates }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8755fc96-33d3-5755-8650-28e7abc2b5b9",
+      "name": "Sync to HubSpot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3480,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "88d9b147-3447-5c32-926f-cefcb2ce9822",
+              "leftValue": "={{ $json.notifySlack }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "07817dcf-d4d3-5054-a5ad-56bb16772324",
+              "leftValue": "={{ $json.counts.alerted }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "82590533-1d54-5e8e-bb8e-50b3d18ada39",
+      "name": "Notify Slack?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3480,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config & Safety Gate').first().json.config.hubspotBaseUrl }}/crm/v3/objects/companies/batch/update",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_PRIVATE_APP_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.hubspotBatchUpdate) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "636879ad-0f02-5901-bb53-2f9bdb341185",
+      "name": "HubSpot: Batch Update Companies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3700,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Writes the hiring_* radar properties. Scope: crm.objects.companies.write.",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "489a5576-a00c-5b83-ba97-4300729d1f67",
+              "leftValue": "={{ $('Compose Sync & Alert Payloads').first().json.counts.tasks }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3cdfe3ec-9ce5-534f-bcf6-60dccb1b8c7e",
+      "name": "Create SDR Tasks?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3920,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Config & Safety Gate').first().json.config.hubspotBaseUrl }}/crm/v3/objects/tasks/batch/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUBSPOT_PRIVATE_APP_TOKEN }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Compose Sync & Alert Payloads').first().json.hubspotTaskBatch) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "0bad445e-079a-5269-a4c8-98a7418b4cad",
+      "name": "HubSpot: Batch Create SDR Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4140,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "High-intent tasks associated to each company (associationTypeId 192).",
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "text/plain"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.slackPayload) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "d8445ade-aec3-56d7-823f-d6b8eb5b15e0",
+      "name": "Slack: Post Radar Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3700,
+        360
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "One Block Kit digest per run. The webhook URL is a secret.",
+      "notesInFlow": false
+    }
+  ],
+  "connections": {
+    "Daily Radar Schedule": {
+      "main": [
+        [
+          {
+            "node": "Config & Safety Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config & Safety Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config & Safety Gate": {
+      "main": [
+        [
+          {
+            "node": "Sandbox Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sandbox Mode?": {
+      "main": [
+        [
+          {
+            "node": "Mock Target Account Scope",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scope From HubSpot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scope From HubSpot?": {
+      "main": [
+        [
+          {
+            "node": "HubSpot: Search Target Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets: Read Target Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HubSpot: Search Target Accounts": {
+      "main": [
+        [
+          {
+            "node": "Flatten HubSpot Scope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets: Read Target Accounts": {
+      "main": [
+        [
+          {
+            "node": "Parse Sheet Scope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Target Account Scope": {
+      "main": [
+        [
+          {
+            "node": "Normalize Target Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten HubSpot Scope": {
+      "main": [
+        [
+          {
+            "node": "Normalize Target Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Sheet Scope": {
+      "main": [
+        [
+          {
+            "node": "Normalize Target Accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Target Accounts": {
+      "main": [
+        [
+          {
+            "node": "Has Accounts?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Accounts?": {
+      "main": [
+        [
+          {
+            "node": "Hiring Live?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Accounts: End",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hiring Live?": {
+      "main": [
+        [
+          {
+            "node": "Apollo Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock Hiring Intelligence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Apollo: Enrich Organization",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Apollo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo: Enrich Organization": {
+      "main": [
+        [
+          {
+            "node": "Apollo: Job Postings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apollo: Job Postings": {
+      "main": [
+        [
+          {
+            "node": "Attach Apollo Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Apollo Signals": {
+      "main": [
+        [
+          {
+            "node": "Clay Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Apollo": {
+      "main": [
+        [
+          {
+            "node": "Clay Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clay Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Clay: Hiring Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Clay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clay: Hiring Lookup": {
+      "main": [
+        [
+          {
+            "node": "Attach Clay Signals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Clay Signals": {
+      "main": [
+        [
+          {
+            "node": "Score Hiring Velocity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Clay": {
+      "main": [
+        [
+          {
+            "node": "Score Hiring Velocity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Hiring Intelligence": {
+      "main": [
+        [
+          {
+            "node": "Score Hiring Velocity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Hiring Velocity": {
+      "main": [
+        [
+          {
+            "node": "Compose Sync & Alert Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Sync & Alert Payloads": {
+      "main": [
+        [
+          {
+            "node": "Dry Run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry Run?": {
+      "main": [
+        [
+          {
+            "node": "Dry Run: Radar Preview",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sync to HubSpot?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notify Slack?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync to HubSpot?": {
+      "main": [
+        [
+          {
+            "node": "HubSpot: Batch Update Companies",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "HubSpot: Batch Update Companies": {
+      "main": [
+        [
+          {
+            "node": "Create SDR Tasks?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create SDR Tasks?": {
+      "main": [
+        [
+          {
+            "node": "HubSpot: Batch Create SDR Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Notify Slack?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Radar Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "pinData": {
+    "Daily Radar Schedule": [
+      {
+        "json": {
+          "timestamp": "2026-11-16T06:00:00.000+00:00",
+          "Readable date": "November 16th 2026, 6:00:00 am",
+          "Readable time": "6:00:00 am",
+          "Day of week": "Monday",
+          "Year": "2026",
+          "Month": "November",
+          "Day of month": "16",
+          "Hour": "06",
+          "Minute": "00",
+          "Second": "00",
+          "Timezone": "UTC (UTC+00:00)"
+        }
+      }
+    ],
+    "HubSpot: Search Target Accounts": [
+      {
+        "json": {
+          "total": 4,
+          "results": [
+            {
+              "id": "600000001",
+              "properties": {
+                "hs_object_id": "600000001",
+                "name": "Apex Dynamics Inc",
+                "domain": "apex-dynamics.example",
+                "website": "https://www.apex-dynamics.example",
+                "numberofemployees": "850",
+                "hubspot_owner_id": "71000001",
+                "hiring_dept_headcount_json": "{\"capturedAt\": \"2026-10-13T06:00:00.000Z\", \"employees\": 790, \"departments\": {\"Engineering\": 120, \"Sales\": 60, \"Marketing\": 25, \"Customer Success\": 30}, \"openRolesTarget\": 3}",
+                "hiring_last_scanned_at": "2026-11-13T06:02:11.000Z",
+                "hiring_last_alerted_at": null,
+                "hiring_velocity_tier": "cool"
+              },
+              "createdAt": "2026-06-02T09:00:00.000Z",
+              "updatedAt": "2026-11-13T06:02:11.000Z",
+              "archived": false
+            },
+            {
+              "id": "600000002",
+              "properties": {
+                "hs_object_id": "600000002",
+                "name": "Brightline Robotics Ltd",
+                "domain": "brightline-robotics.example",
+                "website": "https://www.brightline-robotics.example",
+                "numberofemployees": "320",
+                "hubspot_owner_id": "71000002",
+                "hiring_dept_headcount_json": "{\"capturedAt\": \"2026-10-16T06:00:00.000Z\", \"employees\": 305, \"departments\": {\"Engineering\": 70, \"Sales\": 30, \"Marketing\": 12}, \"openRolesTarget\": 2}",
+                "hiring_last_scanned_at": "2026-11-13T06:02:11.000Z",
+                "hiring_last_alerted_at": null,
+                "hiring_velocity_tier": "cool"
+              },
+              "createdAt": "2026-06-02T09:00:00.000Z",
+              "updatedAt": "2026-11-13T06:02:11.000Z",
+              "archived": false
+            },
+            {
+              "id": "600000003",
+              "properties": {
+                "hs_object_id": "600000003",
+                "name": "Cobalt Ridge Analytics",
+                "domain": "cobalt-ridge-analytics.example",
+                "website": "https://www.cobalt-ridge-analytics.example",
+                "numberofemployees": "140",
+                "hubspot_owner_id": null,
+                "hiring_dept_headcount_json": "{\"capturedAt\": \"2026-11-04T06:00:00.000Z\", \"employees\": 138, \"departments\": {\"Engineering\": 40, \"Sales\": 15}, \"openRolesTarget\": 1}",
+                "hiring_last_scanned_at": "2026-11-13T06:02:11.000Z",
+                "hiring_last_alerted_at": null,
+                "hiring_velocity_tier": "cool"
+              },
+              "createdAt": "2026-06-02T09:00:00.000Z",
+              "updatedAt": "2026-11-13T06:02:11.000Z",
+              "archived": false
+            },
+            {
+              "id": "600000004",
+              "properties": {
+                "hs_object_id": "600000004",
+                "name": "Driftwood Health Systems",
+                "domain": "driftwood-health.example",
+                "website": "https://www.driftwood-health.example",
+                "numberofemployees": "2100",
+                "hubspot_owner_id": "71000001",
+                "hiring_dept_headcount_json": null,
+                "hiring_last_scanned_at": null,
+                "hiring_last_alerted_at": null,
+                "hiring_velocity_tier": null
+              },
+              "createdAt": "2026-06-02T09:00:00.000Z",
+              "updatedAt": "2026-11-13T06:02:11.000Z",
+              "archived": false
+            }
+          ]
+        }
+      }
+    ],
+    "Google Sheets: Read Target Accounts": [
+      {
+        "json": {
+          "range": "Targets!A1:I1000",
+          "majorDimension": "ROWS",
+          "values": [
+            [
+              "company_name",
+              "domain",
+              "employees",
+              "hubspot_company_id",
+              "owner_id",
+              "baseline_json",
+              "last_scanned_at",
+              "last_alerted_at",
+              "tier"
+            ],
+            [
+              "Apex Dynamics Inc",
+              "apex-dynamics.example",
+              "850",
+              "600000001",
+              "71000001",
+              "{\"capturedAt\": \"2026-10-13T06:00:00.000Z\", \"employees\": 790, \"departments\": {\"Engineering\": 120, \"Sales\": 60, \"Marketing\": 25, \"Customer Success\": 30}, \"openRolesTarget\": 3}",
+              "2026-11-13T06:02:11.000Z",
+              "",
+              "cool"
+            ],
+            [
+              "Brightline Robotics Ltd",
+              "brightline-robotics.example",
+              "320",
+              "600000002",
+              "71000002",
+              "{\"capturedAt\": \"2026-10-16T06:00:00.000Z\", \"employees\": 305, \"departments\": {\"Engineering\": 70, \"Sales\": 30, \"Marketing\": 12}, \"openRolesTarget\": 2}",
+              "2026-11-13T06:02:11.000Z",
+              "",
+              "cool"
+            ],
+            [
+              "Cobalt Ridge Analytics",
+              "cobalt-ridge-analytics.example",
+              "140",
+              "600000003",
+              "",
+              "{\"capturedAt\": \"2026-11-04T06:00:00.000Z\", \"employees\": 138, \"departments\": {\"Engineering\": 40, \"Sales\": 15}, \"openRolesTarget\": 1}",
+              "2026-11-13T06:02:11.000Z",
+              "",
+              "cool"
+            ],
+            [
+              "Driftwood Health Systems",
+              "driftwood-health.example",
+              "2100",
+              "600000004",
+              "71000001",
+              "",
+              "",
+              "",
+              ""
+            ]
+          ]
+        }
+      }
+    ],
+    "Apollo: Enrich Organization": [
+      {
+        "json": {
+          "organization": {
+            "id": "syn0000000000000000000001",
+            "name": "Apex Dynamics Inc",
+            "primary_domain": "apex-dynamics.example",
+            "website_url": "http://www.apex-dynamics.example",
+            "estimated_num_employees": 905,
+            "departmental_head_count": {
+              "engineering": 158,
+              "information_technology": 10,
+              "sales": 66,
+              "business_development": 5,
+              "marketing": 27,
+              "support": 33,
+              "finance": 12,
+              "human_resources": 9
+            },
+            "organization_headcount_six_month_growth": 0.142,
+            "organization_headcount_twelve_month_growth": 0.21
+          }
+        }
+      },
+      {
+        "json": {
+          "organization": {
+            "id": "syn0000000000000000000002",
+            "name": "Brightline Robotics Ltd",
+            "primary_domain": "brightline-robotics.example",
+            "website_url": "http://www.brightline-robotics.example",
+            "estimated_num_employees": 331,
+            "departmental_head_count": {
+              "engineering": 74,
+              "sales": 34,
+              "marketing": 12,
+              "operations": 40
+            },
+            "organization_headcount_six_month_growth": 0.061,
+            "organization_headcount_twelve_month_growth": 0.09
+          }
+        }
+      },
+      {
+        "json": {
+          "organization": {
+            "id": "syn0000000000000000000003",
+            "name": "Cobalt Ridge Analytics",
+            "primary_domain": "cobalt-ridge-analytics.example",
+            "website_url": "http://www.cobalt-ridge-analytics.example",
+            "estimated_num_employees": 141,
+            "departmental_head_count": {
+              "engineering": 41,
+              "sales": 15,
+              "data_science": 8
+            },
+            "organization_headcount_six_month_growth": 0.01,
+            "organization_headcount_twelve_month_growth": 0.03
+          }
+        }
+      },
+      {
+        "json": {
+          "organization": {
+            "id": "syn0000000000000000000004",
+            "name": "Driftwood Health Systems",
+            "primary_domain": "driftwood-health.example",
+            "website_url": "http://www.driftwood-health.example",
+            "estimated_num_employees": 2260,
+            "departmental_head_count": {
+              "engineering": 310,
+              "sales": 140,
+              "operations": 420,
+              "support": 95
+            },
+            "organization_headcount_six_month_growth": 0.224,
+            "organization_headcount_twelve_month_growth": 0.31
+          }
+        }
+      }
+    ],
+    "Apollo: Job Postings": [
+      {
+        "json": {
+          "organization_job_postings": [
+            {
+              "id": "synjobapex000",
+              "title": "Senior Software Engineer, Platform",
+              "url": "https://careers.apex-dynamics.example/jobs/2000",
+              "city": "Austin",
+              "state": "Texas",
+              "country": "United States",
+              "posted_at": "2026-11-13T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex001",
+              "title": "Staff Backend Engineer",
+              "url": "https://careers.apex-dynamics.example/jobs/2001",
+              "city": "Austin",
+              "state": "Texas",
+              "country": "United States",
+              "posted_at": "2026-11-11T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex002",
+              "title": "Site Reliability Engineer",
+              "url": "https://careers.apex-dynamics.example/jobs/2002",
+              "city": "Denver",
+              "state": "Colorado",
+              "country": "United States",
+              "posted_at": "2026-11-10T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex003",
+              "title": "Engineering Manager, Payments",
+              "url": "https://careers.apex-dynamics.example/jobs/2003",
+              "city": "Denver",
+              "state": "Colorado",
+              "country": "United States",
+              "posted_at": "2026-11-07T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex004",
+              "title": "Machine Learning Engineer",
+              "url": "https://careers.apex-dynamics.example/jobs/2004",
+              "city": "Austin",
+              "state": "Texas",
+              "country": "United States",
+              "posted_at": "2026-11-05T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex005",
+              "title": "Frontend Engineer",
+              "url": "https://careers.apex-dynamics.example/jobs/2005",
+              "city": "Austin",
+              "state": "Texas",
+              "country": "United States",
+              "posted_at": "2026-11-04T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex006",
+              "title": "Account Executive, Enterprise",
+              "url": "https://careers.apex-dynamics.example/jobs/2006",
+              "city": "Chicago",
+              "state": "Illinois",
+              "country": "United States",
+              "posted_at": "2026-11-12T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex007",
+              "title": "Sales Development Representative",
+              "url": "https://careers.apex-dynamics.example/jobs/2007",
+              "city": "Chicago",
+              "state": "Illinois",
+              "country": "United States",
+              "posted_at": "2026-11-09T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobapex008",
+              "title": "Product Marketing Manager",
+              "url": "https://careers.apex-dynamics.example/jobs/2008",
+              "city": "Austin",
+              "state": "Texas",
+              "country": "United States",
+              "posted_at": "2026-11-01T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "per_page": 100,
+            "total_entries": 9,
+            "total_pages": 1
+          }
+        }
+      },
+      {
+        "json": {
+          "organization_job_postings": [
+            {
+              "id": "synjobbrig000",
+              "title": "Account Executive, Mid-Market",
+              "url": "https://careers.brightline-robotics.example/jobs/2000",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-11-14T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobbrig001",
+              "title": "Account Executive, Enterprise",
+              "url": "https://careers.brightline-robotics.example/jobs/2001",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-11-10T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobbrig002",
+              "title": "Business Development Representative",
+              "url": "https://careers.brightline-robotics.example/jobs/2002",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-11-08T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobbrig003",
+              "title": "Regional Sales Manager",
+              "url": "https://careers.brightline-robotics.example/jobs/2003",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-11-03T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobbrig004",
+              "title": "Sales Development Representative",
+              "url": "https://careers.brightline-robotics.example/jobs/2004",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-10-31T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobbrig005",
+              "title": "Solutions Consultant",
+              "url": "https://careers.brightline-robotics.example/jobs/2005",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-10-27T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobbrig006",
+              "title": "Firmware Engineer",
+              "url": "https://careers.brightline-robotics.example/jobs/2006",
+              "city": "Boston",
+              "state": "Massachusetts",
+              "country": "United States",
+              "posted_at": "2026-10-25T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "per_page": 100,
+            "total_entries": 7,
+            "total_pages": 1
+          }
+        }
+      },
+      {
+        "json": {
+          "organization_job_postings": [
+            {
+              "id": "synjobcoba000",
+              "title": "Data Engineer",
+              "url": "https://careers.cobalt-ridge-analytics.example/jobs/2000",
+              "city": "Remote",
+              "state": null,
+              "country": "United States",
+              "posted_at": "2026-10-28T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobcoba001",
+              "title": "Customer Success Manager",
+              "url": "https://careers.cobalt-ridge-analytics.example/jobs/2001",
+              "city": "Remote",
+              "state": null,
+              "country": "United States",
+              "posted_at": "2026-10-22T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "per_page": 100,
+            "total_entries": 2,
+            "total_pages": 1
+          }
+        }
+      },
+      {
+        "json": {
+          "organization_job_postings": [
+            {
+              "id": "synjobdrif000",
+              "title": "Software Engineer, Integrations",
+              "url": "https://careers.driftwood-health.example/jobs/2000",
+              "city": "Nashville",
+              "state": "Tennessee",
+              "country": "United States",
+              "posted_at": "2026-11-12T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobdrif001",
+              "title": "Implementation Specialist",
+              "url": "https://careers.driftwood-health.example/jobs/2001",
+              "city": "Nashville",
+              "state": "Tennessee",
+              "country": "United States",
+              "posted_at": "2026-11-10T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobdrif002",
+              "title": "Account Executive, Health Systems",
+              "url": "https://careers.driftwood-health.example/jobs/2002",
+              "city": "Nashville",
+              "state": "Tennessee",
+              "country": "United States",
+              "posted_at": "2026-11-07T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            },
+            {
+              "id": "synjobdrif003",
+              "title": "Revenue Operations Analyst",
+              "url": "https://careers.driftwood-health.example/jobs/2003",
+              "city": "Nashville",
+              "state": "Tennessee",
+              "country": "United States",
+              "posted_at": "2026-11-04T00:00:00.000+00:00",
+              "last_seen_at": "2026-11-15T00:00:00.000+00:00"
+            }
+          ],
+          "pagination": {
+            "page": 1,
+            "per_page": 100,
+            "total_entries": 4,
+            "total_pages": 1
+          }
+        }
+      }
+    ],
+    "Clay: Hiring Lookup": [
+      {
+        "json": {
+          "domain": "apex-dynamics.example",
+          "jobs": [
+            {
+              "title": "QA Automation Engineer",
+              "department": "Engineering",
+              "posted_at": "2026-11-14",
+              "location": "Austin, Texas, United States",
+              "url": "https://jobs.board.example/apex-dynamics/3000",
+              "source": "job_board"
+            },
+            {
+              "title": "Senior Software Engineer, Platform",
+              "department": "Engineering",
+              "posted_at": "2026-11-13",
+              "location": "Austin, Texas, United States",
+              "url": "https://jobs.board.example/apex-dynamics/3001",
+              "source": "job_board"
+            },
+            {
+              "title": "Security Engineer",
+              "department": "Engineering",
+              "posted_at": "2026-11-02",
+              "location": "Remote",
+              "url": "https://jobs.board.example/apex-dynamics/3002",
+              "source": "job_board"
+            }
+          ],
+          "headcount": {
+            "total": 910,
+            "by_department": {
+              "Engineering": 166,
+              "Sales": 70
+            }
+          },
+          "headcount_growth_90d_pct": 12.4
+        }
+      },
+      {
+        "json": {
+          "domain": "brightline-robotics.example",
+          "jobs": [
+            {
+              "title": "Sales Operations Manager",
+              "department": "Sales",
+              "posted_at": "2026-11-11",
+              "location": "Boston, Massachusetts, United States",
+              "url": "https://jobs.board.example/brightline-robotics/3000",
+              "source": "job_board"
+            }
+          ],
+          "headcount": {
+            "total": 330,
+            "by_department": {
+              "Engineering": 74,
+              "Sales": 35
+            }
+          },
+          "headcount_growth_90d_pct": 5.2
+        }
+      },
+      {
+        "json": {
+          "domain": "cobalt-ridge-analytics.example",
+          "jobs": [],
+          "headcount": {
+            "total": 141,
+            "by_department": {
+              "Engineering": 41,
+              "Sales": 15
+            }
+          },
+          "headcount_growth_90d_pct": 0.8
+        }
+      },
+      {
+        "json": {
+          "domain": "driftwood-health.example",
+          "jobs": [
+            {
+              "title": "Clinical Operations Manager",
+              "department": "Operations",
+              "posted_at": "2026-11-13",
+              "location": "Nashville, Tennessee, United States",
+              "url": "https://jobs.board.example/driftwood-health/3000",
+              "source": "job_board"
+            }
+          ],
+          "headcount": {
+            "total": 2255,
+            "by_department": {
+              "Engineering": 305,
+              "Sales": 138
+            }
+          },
+          "headcount_growth_90d_pct": 9.6
+        }
+      }
+    ],
+    "HubSpot: Batch Update Companies": [
+      {
+        "json": {
+          "status": "COMPLETE",
+          "results": [
+            {
+              "id": "600000001",
+              "properties": {
+                "hs_object_id": "600000001"
+              },
+              "updatedAt": "2026-11-16T06:03:00.000Z"
+            },
+            {
+              "id": "600000002",
+              "properties": {
+                "hs_object_id": "600000002"
+              },
+              "updatedAt": "2026-11-16T06:03:00.000Z"
+            },
+            {
+              "id": "600000003",
+              "properties": {
+                "hs_object_id": "600000003"
+              },
+              "updatedAt": "2026-11-16T06:03:00.000Z"
+            },
+            {
+              "id": "600000004",
+              "properties": {
+                "hs_object_id": "600000004"
+              },
+              "updatedAt": "2026-11-16T06:03:00.000Z"
+            }
+          ],
+          "startedAt": "2026-11-16T06:02:59.000Z",
+          "completedAt": "2026-11-16T06:03:00.000Z",
+          "pinned": "synthetic-mock-response"
+        }
+      }
+    ],
+    "HubSpot: Batch Create SDR Tasks": [
+      {
+        "json": {
+          "status": "COMPLETE",
+          "results": [
+            {
+              "id": "920000000001",
+              "properties": {
+                "hs_task_status": "NOT_STARTED"
+              },
+              "createdAt": "2026-11-16T06:03:01.000Z"
+            },
+            {
+              "id": "920000000002",
+              "properties": {
+                "hs_task_status": "NOT_STARTED"
+              },
+              "createdAt": "2026-11-16T06:03:01.000Z"
+            }
+          ],
+          "pinned": "synthetic-mock-response"
+        }
+      }
+    ],
+    "Slack: Post Radar Digest": [
+      {
+        "json": {
+          "data": "ok",
+          "pinned": "synthetic-mock-response"
+        }
+      }
+    ]
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 3600
+  },
+  "versionId": "b83068b9-4060-51ce-8cdf-ce2677aa8841",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
